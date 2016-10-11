@@ -1,5 +1,7 @@
 import numpy as np
 from matplotlib import pyplot
+from scipy import sparse
+from scipy.sparse.linalg import spsolve
 
 # Operadores
 # Primera Derivada Atrasada
@@ -16,66 +18,27 @@ def Dy_c(u,i,j,hy):
 def DDx(u,i,j,hx):
 	return (u[i-1,j] - 2*u[i,j] + u[i+1,j])/(hx**2)
 def DDy(u,i,j,hy):
-	return (u[i,j-1] - 2*u[i,j] + u[i,j-1])/(hy**2)
-# Condicion Neumann Orden 2 (Cuidado con Frwd {+dx} o Bkwd {-dx})
-def Nmn2(u_1,u_2,du,dx):
-	return 4/3*u_1 - 1/3*u_2 + 2/3*du*dx
+	return (u[i,j-1] - 2*u[i,j] + u[i,j+1])/(hy**2)
 
-nu = 1.785*10**(-6)
-g = 9.81 # m/s**2
-rho = 1  #
-
-# Los limites y numero de puntos deben estar de tal forma que dx = dy !!!
-nx = 41
-ny = 81
-xlim = [0,2]
-ylim = [0,4]
-tlim = [0,5]
-
-X = np.linspace(xlim[0],xlim[1], nx)
-Y = np.linspace(ylim[0],ylim[1], ny)
-
-dx = X[1]-X[0]
-dy = Y[1]-Y[0]
-dt = 0.1			#dx**2/(2*nu)
-Nt = int(tlim[1] / dt) + 1 
-t = np.linspace(tlim[0],tlim[1], Nt)
-
-# Obtenibles explicitamente
-u = np.zeros((nx,ny))
-v = np.zeros((nx,ny))
-u_mid = np.zeros((nx,ny))
-v_mid = np.zeros((nx,ny))
-
-p = np.zeros(nx*ny)
-p_tem = np.zeros(nx*ny)
-
-# PREDICCION u*, v*
-# Condiciones de contorno no deslizamiento (x=0,L):
-#u_mid[ 0  ,:] = 0
-#u_mid[nx-1,:] = 0
-#v_mid[ 0  ,:] = 0
-#v_mid[nx-1,:] = 0
-
-# Euler Explplicito con diferencia centrada
-	# CONDICION PERIODICA EN (Y=0,L)
-for i in range(1,nx-1):			# Puntos 0 y nx-1 ya fueron calculados
-	for j in range(-1,ny-1):		# Se parte desde el ultimo punto para lograr periodicidad
-		u_mid[i,j] =  u[i,j] - dt*( u[i,j]*Dx_a(u,i,j,dx) + v[i,j]*Dy_a(u,i,j,dy) )
-		u_mid[i,j] += dt*nu*( DDx(u,i,j,dx) + DDy(u,i,j,dy) )
-
-		v_mid[i,j] =  v[i,j] - dt*( u[i,j]*Dx_a(u,i,j,dx) + v[i,j]*Dy_a(u,i,j,dy) )
-		v_mid[i,j] += dt*nu*( DDx(u,i,j,dx) + DDy(u,i,j,dy) ) - dt*g
-
+# Fucion lado Derecho
 def Pois_RHS(u_mid, v_mid,P, nx, ny, delta, dt, rho):
-	C = -delta*rho/(2*dt)
+	C = rho*delta/(2*dt)	# EL delta va por la matriz
 	k=0
-	for i in range(1,nx-1):
-		for j in range(1,ny-1):
-			# poner casos
-			RHS[k] = (u_mid[i+1,j] - u_mid[i-1,j] + v_mid[i,j+1] - v_mid[u,j-1])*C
+	RHS = np.zeros(nx*ny)
+
+	for j in range(-1,ny-1):
+		for i in range(nx):
+
+			if i==0:
+				RHS[k] = ( (-3*u_mid[0,j] + 4*u_mid[1,j] - u_mid[2,j] ) + ( v_mid[i,j+1] - v_mid[i,j-1] ) )*C
+			elif i==nx-1:
+				RHS[k] = ( ( 3*u_mid[nx-1,j] - 4*u_mid[nx-2,j] + u_mid[nx-3,j] ) + ( v_mid[i,j+1] - v_mid[i,j-1]) )*C
+			else:
+				RHS[k] = (u_mid[i+1,j] - u_mid[i-1,j] + v_mid[i,j+1] - v_mid[i,j-1])*C
+			k +=1
 	return RHS
 
+# parte 3 resolucion ecuacion eliptica 
 def Pois_Matrix(nx,ny):	#PONER CONDICIONES PERIODICAS !!!!1
 	M = np.zeros((nx*ny,nx*ny))
 	k = 0
@@ -83,42 +46,43 @@ def Pois_Matrix(nx,ny):	#PONER CONDICIONES PERIODICAS !!!!1
 		for i in range(nx):
 			M[k,k] = -4
 
-			# Neumann + Periodica !!! Stencil orden 2 para bordes con Neumann
+			# Neumann + Periodica !!! Diferencia centrada para determinar el punto P[-1,j] => P[-1,j] = P[1,j] 
 			if i==0 and j==0:
-				M[k,k]          += 4/3
+				#M[k,k]          += 4/3
 
-				M[k,k+1]        = 1 - 1/3
-				M[k,k+nx]       = 1
-				M[k,nx*(ny-1)]  = 1 		##### Revisar
+				M[k,k+1]  = 1 + 1
+				M[k,k+nx] = 1
+				M[k,-nx]   = 1
 			elif i==0 and j==ny-1:
-				M[k,k]    += 4/3
+				#M[k,k]    += 4/3
 
-				M[k,k+1]  = 1 - 1/3
+				M[k,k+1]  = 1 + 1
 				M[k,k-nx] = 1
 				M[k,0]    = 1		
 			elif i==nx-1 and j==0:
-				M[k,k]      += 4/3
+				#M[k,k]      += 4/3
 
-				M[k,k-1]     = 1 - 1/3
-				M[k,k+nx]    = 1
-				M[k,nx*ny-1] = 1
+				M[k,k-1]  = 1 + 1
+				M[k,k+nx] = 1
+				M[k,-1]   = 1
 			elif i==nx-1 and j==ny-1:
-				M[k,k]   += 4/3
+				#M[k,k]   += 4/3
 
-				M[k,k-1]  = 1 - 1/3
-				M[k,k-nx] = 1
+				M[k,k-1]  = 1 + 1
 				M[k,nx-1] = 1
+				M[k,k-nx] = 1
 			# Solo Neumann
 			elif i==0:
-				M[k,k]   += 4/3
+				#M[k,k]   += 4/3
 
-				M[k,k+1]  = 1 - 1/3##
+				M[k,k+1]  = 1 + 1
+
 				M[k,k+nx] = 1
 				M[k,k-nx] = 1
 			elif i==nx-1:
-				M[k,k]   += 4/3
+				#M[k,k]   += 4/3
 
-				M[k,k-1]  = 1 - 1/3##
+				M[k,k-1]  = 1 + 1 
 				M[k,k+nx] = 1
 				M[k,k-nx] = 1
 
@@ -127,12 +91,12 @@ def Pois_Matrix(nx,ny):	#PONER CONDICIONES PERIODICAS !!!!1
 				M[k,k+1]  = 1
 				M[k,k-1]  = 1
 				M[k,k+nx] = 1
-				M[k,(ny-1)*nx+i] = 1
+				M[k,-nx+i] = 1
 			elif j==ny-1:
 				M[k,k+1]  = 1
 				M[k,k-1]  = 1
-				M[k,k-nx] = 1
 				M[k,i]    = 1
+				M[k,k-nx] = 1
 			else:
 				M[k,k+1]  = 1
 				M[k,k-1]  = 1
@@ -144,13 +108,93 @@ def Pois_Matrix(nx,ny):	#PONER CONDICIONES PERIODICAS !!!!1
 			k +=1
 	return M
 
-A = Pois_Matrix(nx,ny)
-B = Pois_RHS(u_mid, v_mid, p, nx, ny, dx, dt, rho)
-print np.shape(A)
 
-# Ecuacion de Poisson con Map: 2D -> 1D
-#k = 0
-#for i in range(1,N-1):
-#	for j in range(1,N-1):
-		
+nu = 0.1
+g = 9.81 # m/s**2
+rho = 1  #
+
+# Los limites y numero de puntos deben estar de tal forma que dx = dy !!!
+nx = 81
+ny = 2*nx
+xlim = [0,2]
+ylim = [0,4]
+tlim = [0,5]
+
+X = np.linspace(xlim[0],xlim[1], nx)
+Y = np.linspace(ylim[0],ylim[1], ny)
+
+dx = X[1]-X[0]
+dy = Y[1]-Y[0]
+dt = 0.01			#dx**2/(2*nu)
+Nt = int(tlim[1] / dt) + 1 
+t = np.linspace(tlim[0],tlim[1], Nt)
+
+# Campo de Velocidades
+u = np.zeros((nx,ny))
+v = np.zeros((nx,ny))
+
+# Velocidades Intermedias
+u_mid = np.zeros((nx,ny))
+v_mid = np.zeros((nx,ny))
+
+# Velocidades Iteracion Anterior
+u_n = np.zeros((nx,ny))
+v_n = np.zeros((nx,ny))
+
+# Presion como matriz
+P = np.zeros((nx,ny))
+
+# Presion como vector
+P_vec = np.zeros(nx*ny)
+
+# Crear Matriz del Sistema
+A = Pois_Matrix(nx,ny)
+A_s = sparse.csr_matrix(A)
+
+
+error = 1
+iteracion = 0
+while error>10**-3:
+	# Euler Explplicito con diferencia atrasada
+	for j in range(-1,ny-1):				# Puntos 0 y nx-1 ya fueron calculados (u,v=0,0)
+		for i in range(1,nx-1):		# Se parte desde el ultimo punto para lograr periodicidad
+			u_mid[i,j] =  u[i,j] - dt*( u[i,j]*Dx_a(u,i,j,dx) + v[i,j]*Dy_a(u,i,j,dy) )
+			u_mid[i,j] += dt*nu*( DDx(u,i,j,dx) + DDy(u,i,j,dy) )
+
+			v_mid[i,j] =  v[i,j] - dt*( u[i,j]*Dx_a(u,i,j,dx) + v[i,j]*Dy_a(u,i,j,dy) )
+			v_mid[i,j] += dt*nu*( DDx(u,i,j,dx) + DDy(u,i,j,dy) ) - dt*g
+
+	# Lado derecho del sistema
+	B = Pois_RHS(u_mid, v_mid, P, nx, ny, dx, dt, rho)
+
+	# Resolver Sistema
+	P_vec = spsolve(A_s,B)
+
+	# Reescribir la presion como matriz
+	k = 0
+	for j in range(ny):
+		for i in range(nx):
+			P[i,j] = P_vec[k]
+			k += 1
+
+	# Actualizar Velocidades
+	u_n = u.copy()
+	v_n = v.copy()
+	for j in range(-1,ny-1):
+		for i in range(1,nx-1):
+			u[i,j] = u_mid[i,j] + dt/(2*dx*rho)*(P[i+1,j]-P[i-1,j])
+			v[i,j] = v_mid[i,j] + dt/(2*dy*rho)*(P[i,j+1]-P[i,j-1])
+
+	error = np.max(abs(v-v_n))/np.max(abs(v))
+	iteracion += 1
+	if iteracion > 1000:
+		break
+
+
+print(iteracion, error, np.max(abs(v-v_n)))
+X, Y = np.meshgrid(X,Y)
+fig = pyplot.figure(figsize = (11,7), dpi=100 )
+pyplot.quiver(X[::10, ::2], Y[::10, ::2], u[::10, ::2], v[::10, ::2]);
+#pyplot.quiver(X, Y, u, v);
+pyplot.show();
 
