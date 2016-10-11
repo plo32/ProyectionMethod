@@ -1,7 +1,9 @@
 import numpy as np
-from matplotlib import pyplot
 from scipy import sparse
 from scipy.sparse.linalg import spsolve
+
+import matplotlib.pyplot as plt
+#from streamplot import streamplot
 
 # Operadores
 # Primera Derivada Atrasada
@@ -48,7 +50,7 @@ def Pois_Matrix(nx,ny):	#PONER CONDICIONES PERIODICAS !!!!1
 
 			# Neumann + Periodica !!! Diferencia centrada para determinar el punto P[-1,j] => P[-1,j] = P[1,j] 
 			if i==0 and j==0:
-				#M[k,k]          += 4/3
+				#M[k,k]    += 4/3
 
 				M[k,k+1]  = 1 + 1
 				M[k,k+nx] = 1
@@ -97,6 +99,7 @@ def Pois_Matrix(nx,ny):	#PONER CONDICIONES PERIODICAS !!!!1
 				M[k,k-1]  = 1
 				M[k,i]    = 1
 				M[k,k-nx] = 1
+
 			else:
 				M[k,k+1]  = 1
 				M[k,k-1]  = 1
@@ -115,7 +118,7 @@ rho = 1  #
 
 # Los limites y numero de puntos deben estar de tal forma que dx = dy !!!
 nx = 81
-ny = 2*nx
+ny = (nx-1)*2 + 1
 xlim = [0,2]
 ylim = [0,4]
 tlim = [0,5]
@@ -125,7 +128,7 @@ Y = np.linspace(ylim[0],ylim[1], ny)
 
 dx = X[1]-X[0]
 dy = Y[1]-Y[0]
-dt = 0.01			#dx**2/(2*nu)
+dt = 0.1			#dx**2/(2*nu)
 Nt = int(tlim[1] / dt) + 1 
 t = np.linspace(tlim[0],tlim[1], Nt)
 
@@ -154,10 +157,10 @@ A_s = sparse.csr_matrix(A)
 
 error = 1
 iteracion = 0
-while error>10**-3:
+for paso in range(10):
 	# Euler Explplicito con diferencia atrasada
-	for j in range(-1,ny-1):				# Puntos 0 y nx-1 ya fueron calculados (u,v=0,0)
-		for i in range(1,nx-1):		# Se parte desde el ultimo punto para lograr periodicidad
+	for j in range(-1,ny-1):			# Se parte desde el ultimo punto para facilitar la periodicidad
+		for i in range(1,nx-1):			# Puntos 0 y nx-1 ya fueron calculados (u,v=0,0)
 			u_mid[i,j] =  u[i,j] - dt*( u[i,j]*Dx_a(u,i,j,dx) + v[i,j]*Dy_a(u,i,j,dy) )
 			u_mid[i,j] += dt*nu*( DDx(u,i,j,dx) + DDy(u,i,j,dy) )
 
@@ -187,14 +190,21 @@ while error>10**-3:
 
 	error = np.max(abs(v-v_n))/np.max(abs(v))
 	iteracion += 1
-	if iteracion > 1000:
-		break
+	print("It: ", iteracion, "Error: ", error)
+	#if iteracion > 1000:
+	#	break
 
 
-print(iteracion, error, np.max(abs(v-v_n)))
+print( "Numero de Iteraciones: ", iteracion)
+
+print(v[:,(ny-1)/2])
+
+u = np.transpose(u)
+v = np.transpose(v)
+
 X, Y = np.meshgrid(X,Y)
-fig = pyplot.figure(figsize = (11,7), dpi=100 )
-pyplot.quiver(X[::10, ::2], Y[::10, ::2], u[::10, ::2], v[::10, ::2]);
-#pyplot.quiver(X, Y, u, v);
-pyplot.show();
-
+fig = plt.figure(figsize = (4,8), dpi=100 )
+plt.quiver(X[::10, ::2], Y[::10, ::2], u[::10, ::2], v[::10, ::2], headaxislength=4);
+#plt.quiver(X, Y, u, v);
+#plt.streamplot(X, Y, u, v, color=u, linewidth=5*P/P.max())
+plt.show();
