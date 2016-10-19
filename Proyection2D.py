@@ -1,11 +1,9 @@
 import numpy as np
 from scipy import sparse
 from scipy.sparse.linalg import spsolve
-
 import matplotlib.pyplot as plt
-#from streamplot import streamplot
 
-# Operadores
+# Derivadas como funciones:
 # Primera Derivada Atrasada
 def Dx_a(u,i,j,hx):
 	return (u[i,j] - u[i-1,j])/(hx)
@@ -22,9 +20,21 @@ def DDx(u,i,j,hx):
 def DDy(u,i,j,hy):
 	return (u[i,j-1] - 2*u[i,j] + u[i,j+1])/(hy**2)
 
+# Solucion analitica del estado estacionario
+def Vel_analitica(t,g,L,nu,nx):
+	v = np.zeros(nx)
+	x = np.linspace(0,L,nx)
+	n_max = 100
+	for n in range(1,n_max):
+		C = 2*g*L/(nu*(n*np.pi)**2) * (1-np.exp(-nu*(n*np.pi/L)**2*t))
+		print 'const: ', np.shape(C)
+		v +=  C* np.sin(n*np.pi/L*x)
+		print 'vel: ', np.shape(v) 
+	return v
+
 # Fucion lado Derecho
 def Pois_RHS(u_mid, v_mid,P, nx, ny, delta, dt, rho):
-	C = rho*delta/(2*dt)	# EL delta va por la matriz
+	C = rho*delta/(2*dt)
 	k=0
 	RHS = np.zeros(nx*ny)
 
@@ -40,59 +50,55 @@ def Pois_RHS(u_mid, v_mid,P, nx, ny, delta, dt, rho):
 			k +=1
 	return RHS
 
-# parte 3 resolucion ecuacion eliptica 
-def Pois_Matrix(nx,ny):	#PONER CONDICIONES PERIODICAS !!!!1
+# Definir Matriz para las Presiones
+def Pois_Matrix(nx,ny):
 	M = np.zeros((nx*ny,nx*ny))
 	k = 0
 	for j in range(ny):
 		for i in range(nx):
 			M[k,k] = -4
 
-			# Neumann + Periodica !!! Diferencia centrada para determinar el punto P[-1,j] => P[-1,j] = P[1,j] 
+		# Neumann + Periodica 
+		 # Diferencia centrada en P[0,j] => P[-1,j] = P[1,j] 
 			if i==0 and j==0:
-				#M[k,k]    += 4/3
 
 				M[k,k+1]  = 1 + 1
 				M[k,k+nx] = 1
-				M[k,-nx]   = 1
+				M[k,-nx]  = 1
 			elif i==0 and j==ny-1:
-				#M[k,k]    += 4/3
 
 				M[k,k+1]  = 1 + 1
 				M[k,k-nx] = 1
-				M[k,0]    = 1		
+				M[k,0]    = 1
 			elif i==nx-1 and j==0:
-				#M[k,k]      += 4/3
 
 				M[k,k-1]  = 1 + 1
 				M[k,k+nx] = 1
 				M[k,-1]   = 1
 			elif i==nx-1 and j==ny-1:
-				#M[k,k]   += 4/3
 
 				M[k,k-1]  = 1 + 1
 				M[k,nx-1] = 1
 				M[k,k-nx] = 1
-			# Solo Neumann
+
+		# Solo Neumann
 			elif i==0:
-				#M[k,k]   += 4/3
 
 				M[k,k+1]  = 1 + 1
 
 				M[k,k+nx] = 1
 				M[k,k-nx] = 1
 			elif i==nx-1:
-				#M[k,k]   += 4/3
 
 				M[k,k-1]  = 1 + 1 
 				M[k,k+nx] = 1
 				M[k,k-nx] = 1
 
-			# Solo Periodica
+		# Solo Periodica
 			elif j==0:
-				M[k,k+1]  = 1
-				M[k,k-1]  = 1
-				M[k,k+nx] = 1
+				M[k,k+1]   = 1
+				M[k,k-1]   = 1
+				M[k,k+nx]  = 1
 				M[k,-nx+i] = 1
 			elif j==ny-1:
 				M[k,k+1]  = 1
@@ -100,37 +106,41 @@ def Pois_Matrix(nx,ny):	#PONER CONDICIONES PERIODICAS !!!!1
 				M[k,i]    = 1
 				M[k,k-nx] = 1
 
+		# Resto de la malla
 			else:
 				M[k,k+1]  = 1
 				M[k,k-1]  = 1
 				M[k,k+nx] = 1
 				M[k,k-nx] = 1
-			# Condicion para fijar Presion
+
+		# Condicion para fijar Presion
 			if j==(ny-1)/2 and i==(nx-1)/2:
 				M[k,k] += -1
 			k +=1
-	return M
+
+	M_s = sparse.csr_matrix(M)
+	return M_s
 
 
-nu = 0.1
+nu = 0.1 # m^2/s
 g = 9.81 # m/s**2
-rho = 1  #
+rho = 1  # kg/m^3
 
 # Los limites y numero de puntos deben estar de tal forma que dx = dy !!!
-nx = 81
+nx = 41
 ny = (nx-1)*2 + 1
 xlim = [0,2]
 ylim = [0,4]
-tlim = [0,5]
 
 X = np.linspace(xlim[0],xlim[1], nx)
 Y = np.linspace(ylim[0],ylim[1], ny)
-
 dx = X[1]-X[0]
 dy = Y[1]-Y[0]
-dt = 0.1			#dx**2/(2*nu)
-Nt = int(tlim[1] / dt) + 1 
-t = np.linspace(tlim[0],tlim[1], Nt)
+
+dt = 0.01
+
+if nu*dt/dx**2>0.5:
+	print 'Condicion de difusion inestable: ', nu*dt/dx**2
 
 # Campo de Velocidades
 u = np.zeros((nx,ny))
@@ -144,28 +154,36 @@ v_mid = np.zeros((nx,ny))
 u_n = np.zeros((nx,ny))
 v_n = np.zeros((nx,ny))
 
-# Presion como matriz
+# Presion como matriz y como vector
 P = np.zeros((nx,ny))
-
-# Presion como vector
 P_vec = np.zeros(nx*ny)
 
+
 # Crear Matriz del Sistema
-A = Pois_Matrix(nx,ny)
-A_s = sparse.csr_matrix(A)
+A_s = Pois_Matrix(nx,ny)
 
+# Arreglos
+cycle = np.arange(-1,ny-1)
+inter = np.arange(1,nx-1)
 
-error = 1
+# Solucion Analitica
+V_a = Vel_est(g,xlim[1],nu,nx)
+
+error = 10
 iteracion = 0
-for paso in range(10):
+while error>1:
+
+	if np.max(v)*dt/dy>1:
+		print 'Condicion de conveccion inestable: ', np.max(v)*dt/dy
+
 	# Euler Explplicito con diferencia atrasada
 	for j in range(-1,ny-1):			# Se parte desde el ultimo punto para facilitar la periodicidad
-		for i in range(1,nx-1):			# Puntos 0 y nx-1 ya fueron calculados (u,v=0,0)
+		for i in range(1,nx-1):			# Puntos 0 y nx-1 no se calculan (u,v=0,0)
 			u_mid[i,j] =  u[i,j] - dt*( u[i,j]*Dx_a(u,i,j,dx) + v[i,j]*Dy_a(u,i,j,dy) )
 			u_mid[i,j] += dt*nu*( DDx(u,i,j,dx) + DDy(u,i,j,dy) )
 
-			v_mid[i,j] =  v[i,j] - dt*( u[i,j]*Dx_a(u,i,j,dx) + v[i,j]*Dy_a(u,i,j,dy) )
-			v_mid[i,j] += dt*nu*( DDx(u,i,j,dx) + DDy(u,i,j,dy) ) - dt*g
+			v_mid[i,j] =  v[i,j] - dt*( u[i,j]*Dx_a(v,i,j,dx) + v[i,j]*Dy_a(v,i,j,dy) )
+			v_mid[i,j] += dt*nu*( DDx(v,i,j,dx) + DDy(v,i,j,dy) ) - dt*g
 
 	# Lado derecho del sistema
 	B = Pois_RHS(u_mid, v_mid, P, nx, ny, dx, dt, rho)
@@ -183,28 +201,31 @@ for paso in range(10):
 	# Actualizar Velocidades
 	u_n = u.copy()
 	v_n = v.copy()
-	for j in range(-1,ny-1):
-		for i in range(1,nx-1):
-			u[i,j] = u_mid[i,j] + dt/(2*dx*rho)*(P[i+1,j]-P[i-1,j])
-			v[i,j] = v_mid[i,j] + dt/(2*dy*rho)*(P[i,j+1]-P[i,j-1])
 
-	error = np.max(abs(v-v_n))/np.max(abs(v))
+	u[1:-1,:] = u_mid[1:-1,:] + dt/(2*dx*rho)*( P[2:,:] - P[:-2,:] )
+	v[:,cycle] = v_mid[:,cycle] + dt/(2*dy*rho)*( P[:,cycle+1]  - P[:,cycle-1] )
+
+	# Variacion con respecto a la iteracion anterior y error con respecto a la solucion analitica
+	variacion = sum(np.abs(v_n[1:-1,(ny-1)/2]-v[1:-1,(ny-1)/2])/np.abs(v_n[1:-1,(ny-1)/2]))
+	error = sum(np.abs(V_a[1:-1] - v[1:-1:,(ny-1)/2])/np.abs(V_a[1:-1]))
+	print "Iteracion: ", iteracion, "Variacion: ", variacion, "Error: ", error
 	iteracion += 1
-	print("It: ", iteracion, "Error: ", error)
-	#if iteracion > 1000:
-	#	break
 
 
-print( "Numero de Iteraciones: ", iteracion)
-
-print(v[:,(ny-1)/2])
+fig1 = plt.figure(figsize = (4,4), dpi=100 )
+plt.plot(X,V_a, c='k',ls='-');
 
 u = np.transpose(u)
 v = np.transpose(v)
+P = np.transpose(P)
 
 X, Y = np.meshgrid(X,Y)
-fig = plt.figure(figsize = (4,8), dpi=100 )
-plt.quiver(X[::10, ::2], Y[::10, ::2], u[::10, ::2], v[::10, ::2], headaxislength=4);
-#plt.quiver(X, Y, u, v);
-#plt.streamplot(X, Y, u, v, color=u, linewidth=5*P/P.max())
+fig2 = plt.figure(figsize = (4,8), dpi=100 )
+plt.rcParams['font.family'] = 'serif'
+plt.rcParams['font.size'] = 8
+plt.contourf(X,Y,P);
+plt.colorbar();
+plt.quiver(X[::20,::2], Y[::20,::2], u[::20,::2], v[::20,::2], headaxislength=5);
+plt.xlabel('X')
+plt.ylabel('Y');
 plt.show();
